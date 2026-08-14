@@ -3,17 +3,17 @@ function keys --description 'Interactive cheat sheet for keyboard shortcuts: fis
     or return 22
 
     if set --query _flag_help
-        _keys_help
+        _keysight_help
         return
     end
 
     set -f self (status filename)
     set -f refresh (set --query _flag_refresh; and echo refresh; or echo '')
-    set -f rows (_keys_collect "$_flag_source" "$refresh")
+    set -f rows (_keysight_collect "$_flag_source" "$refresh")
 
     if test (count $rows) -eq 0
         echo "keys: no shortcuts found for source '$_flag_source'" >&2
-        echo "keys: known sources are fish, ghostty, wezterm, skhd, yazi, lazygit, nvim" >&2
+        echo "keys: known sources are "(string join ', ' (_keysight_sources)) >&2
         return 1
     end
 
@@ -29,7 +29,7 @@ function keys --description 'Interactive cheat sheet for keyboard shortcuts: fis
 
     # fzf needs the rows on disk: the preview runs in a separate process and looks them up by index.
     # The template keeps its X's because GNU mktemp, which shadows the BSD one here, insists on them.
-    set -f data (mktemp -t keys-cheatsheet.XXXXXX)
+    set -f data (mktemp -t keysight.XXXXXX)
     or begin
         echo 'keys: could not create a temporary file' >&2
         return 1
@@ -43,9 +43,9 @@ function keys --description 'Interactive cheat sheet for keyboard shortcuts: fis
             --with-nth 2,3,4 \
             --prompt 'Keys> ' \
             --header 'enter: copy shortcut · ctrl-e: open the config it comes from' \
-            --preview "fish --no-config --command 'source $self; _keys_preview $data {1}'" \
+            --preview "fish --no-config --command 'source $self; _keysight_preview $data {1}'" \
             --preview-window 'right,52%,wrap,border-left' \
-            --bind "ctrl-e:execute(fish --no-config --command 'source $self; _keys_edit $data {1}')" \
+            --bind "ctrl-e:execute(fish --no-config --command 'source $self; _keysight_edit $data {1}')" \
             --query "$argv" <$data
     )
 
@@ -54,8 +54,9 @@ function keys --description 'Interactive cheat sheet for keyboard shortcuts: fis
     test -n "$picked"; or return 0
 
     # The visible column carries colouring, padding and the mode suffix; none of that
-    # belongs in the clipboard
-    set -f shortcut (_keys_strip (string split \t -- $picked)[3])
+    # belongs in the clipboard. Padding goes first: it sits after the mode suffix and
+    # would keep the regex below from ever seeing the end of the string.
+    set -f shortcut (string trim -- (_keysight_strip (string split \t -- $picked)[3]))
     set shortcut (string trim -- (string replace --regex ' *\(.*\)$' '' -- $shortcut))
 
     if command --query pbcopy
@@ -66,7 +67,7 @@ function keys --description 'Interactive cheat sheet for keyboard shortcuts: fis
     end
 end
 
-function _keys_help --description 'Usage text for the keys cheat sheet'
+function _keysight_help --description 'Usage text for the keys cheat sheet'
     echo 'keys — interactive cheat sheet for every shortcut configured on this machine.'
     echo
     echo 'Usage:'
@@ -75,18 +76,48 @@ function _keys_help --description 'Usage text for the keys cheat sheet'
     echo '  keys --list             dump raw TSV instead of opening fzf'
     echo '  keys --refresh          rebuild the nvim mapping cache'
     echo
-    echo 'Sources: fish, ghostty, wezterm, skhd, yazi, lazygit, nvim.'
+    echo 'Sources: '(string join ', ' (_keysight_sources))'.'
     echo 'Data is parsed from the live configs on every run, so it cannot go stale.'
 end
 
-function _keys_collect --description 'Gather, normalise and index shortcuts from every source'
+function _keysight_sources --description 'Names of every known source, in display order'
+    printf '%s\n' fish ghostty wezterm skhd yazi lazygit nvim
+end
+
+function _keysight_config --description 'Config paths for a source: user override first, XDG default second'
+    set -f override keysight_{$argv[1]}_config
+
+    if set --query $override
+        printf '%s\n' $$override
+        return
+    end
+
+    set -f base $XDG_CONFIG_HOME
+    test -n "$base"; or set base ~/.config
+
+    printf '%s\n' $base/$argv[2..]
+end
+
+function _keysight_cache_dir --description 'Directory the nvim mapping cache lives in'
+    if set --query keysight_cache_dir
+        echo $keysight_cache_dir
+        return
+    end
+
+    set -f base $XDG_CACHE_HOME
+    test -n "$base"; or set base ~/.cache
+
+    echo $base/keysight
+end
+
+function _keysight_collect --description 'Gather, normalise and index shortcuts from every source'
     set -f wanted $argv[1]
     set -f refresh $argv[2]
     set -f raw
 
-    for source in fish ghostty wezterm skhd yazi lazygit nvim
+    for source in (_keysight_sources)
         test -z "$wanted"; or test "$wanted" = "$source"; or continue
-        set --append raw (_keys_source_$source $refresh)
+        set --append raw (_keysight_source_$source $refresh)
     end
 
     test (count $raw) -gt 0; or return
@@ -120,7 +151,7 @@ function _keys_collect --description 'Gather, normalise and index shortcuts from
     '
 end
 
-function _keys_source_fish --description 'Shortcuts from the running fish session'
+function _keysight_source_fish --description 'Shortcuts from the running fish session'
     status is-interactive; or return
 
     for line in (bind 2>/dev/null)
@@ -133,7 +164,9 @@ function _keys_source_fish --description 'Shortcuts from the running fish sessio
             set builtin 0
         end
 
-        set -l mode default
+        # Only `-M` says anything about modes. Outside vi bindings fish never prints it,
+        # and calling that "default" would tag every single row with a mode nobody has.
+        set -l mode -
         if string match --quiet --regex '^-M \S+ ' -- $rest
             set mode (string replace --regex '^-M (\S+) .*$' '$1' -- $rest)
             set rest (string replace --regex '^-M \S+ ' '' -- $rest)
@@ -158,11 +191,11 @@ function _keys_source_fish --description 'Shortcuts from the running fish sessio
         set -l details (functions --details $action 2>/dev/null)
         test -f "$details"; and set origin $details
 
-        printf 'fish\t%s\t%s\t%s\t%s\t%s\n' $shortcut (_keys_fish_describe $action) $action $origin $mode
+        printf 'fish\t%s\t%s\t%s\t%s\t%s\n' $shortcut (_keysight_fish_describe $action) $action $origin $mode
     end
 end
 
-function _keys_fish_describe --description 'Human readable description for a fish binding'
+function _keysight_fish_describe --description 'Human readable description for a fish binding'
     set -f action $argv[1]
 
     # A custom function carries its own description, which beats anything hardcoded here
@@ -233,50 +266,49 @@ function _keys_fish_describe --description 'Human readable description for a fis
     end
 end
 
-function _keys_source_ghostty --description 'Shortcuts from the ghostty config'
-    set -f config ~/.config/ghostty/config
-    test -f $config; or return
+function _keysight_source_ghostty --description 'Shortcuts from the ghostty config'
+    for config in (_keysight_config ghostty ghostty/config)
+        test -f $config; or continue
 
-    grep --line-number '^keybind' $config | while read --line entry
-        set -l lineno (string split --max 1 ':' -- $entry)[1]
-        set -l value (string replace --regex '^[0-9]+:keybind *= *' '' -- $entry)
-        set -l shortcut (string split --max 1 '=' -- $value)[1]
-        set -l action (string split --max 1 '=' -- $value)[2]
+        grep --line-number '^keybind' $config | while read --line entry
+            set -l lineno (string split --max 1 ':' -- $entry)[1]
+            set -l value (string replace --regex '^[0-9]+:keybind *= *' '' -- $entry)
+            set -l shortcut (string split --max 1 '=' -- $value)[1]
+            set -l action (string split --max 1 '=' -- $value)[2]
 
-        printf 'ghostty\t%s\t%s\t%s\t%s\t-\n' \
-            (_keys_normalise $shortcut) (_keys_describe_action $action) $action "$config:$lineno"
+            printf 'ghostty\t%s\t%s\t%s\t%s\t-\n' \
+                (_keysight_normalise $shortcut) (_keysight_describe_action $action) $action "$config:$lineno"
+        end
     end
 end
 
-function _keys_source_wezterm --description 'Shortcuts from the wezterm config'
-    set -f config ~/.config/wezterm/wezterm.lua
-    test -f $config; or return
+function _keysight_source_wezterm --description 'Shortcuts from the wezterm config'
+    for config in (_keysight_config wezterm wezterm/wezterm.lua)
+        test -f $config; or continue
 
-    grep --line-number 'key *=' $config | while read --line entry
-        set -l lineno (string split --max 1 ':' -- $entry)[1]
-        set -l body (string replace --regex '^[0-9]+:' '' -- $entry)
+        grep --line-number 'key *=' $config | while read --line entry
+            set -l lineno (string split --max 1 ':' -- $entry)[1]
+            set -l body (string replace --regex '^[0-9]+:' '' -- $entry)
 
-        string match --quiet --regex 'key *= *"' -- $body; or continue
+            string match --quiet --regex 'key *= *"' -- $body; or continue
 
-        set -l shortcut (string replace --regex '.*key *= *"([^"]*)".*' '$1' -- $body)
-        set -l mods (string replace --regex '.*mods *= *"([^"]*)".*' '$1' -- $body)
-        set -l action (string trim -- (string replace --regex '.*action *= *(.*[^,])[, ]*\}.*' '$1' -- $body))
+            set -l shortcut (string replace --regex '.*key *= *"([^"]*)".*' '$1' -- $body)
+            set -l mods (string replace --regex '.*mods *= *"([^"]*)".*' '$1' -- $body)
+            set -l action (string trim -- (string replace --regex '.*action *= *(.*[^,])[, ]*\}.*' '$1' -- $body))
 
-        test "$mods" = "$body"; and set mods ''
-        test -n "$mods"; and set shortcut "$mods|$shortcut"
+            test "$mods" = "$body"; and set mods ''
+            test -n "$mods"; and set shortcut "$mods|$shortcut"
 
-        printf 'wezterm\t%s\t%s\t%s\t%s\t-\n' \
-            (_keys_normalise $shortcut) (_keys_describe_action $action) $action "$config:$lineno"
+            printf 'wezterm\t%s\t%s\t%s\t%s\t-\n' \
+                (_keysight_normalise $shortcut) (_keysight_describe_action $action) $action "$config:$lineno"
+        end
     end
 end
 
-function _keys_source_skhd --description 'Shortcuts from the skhd config'
-    set -f config ~/.config/skhd/skhdrc
-    test -f $config; or return
-
+function _keysight_source_skhd --description 'Shortcuts from the skhd config'
     # skhd config is line-continued, aliased through .define and split into modes,
     # so it is parsed in one awk pass that resolves the aliases as it goes.
-    for file in $config ~/.config/skhd/helpers.skhdrc
+    for file in (_keysight_config skhd skhd/skhdrc skhd/helpers.skhdrc)
         test -f $file; or continue
 
         awk -v file="$file" '
@@ -285,8 +317,8 @@ function _keys_source_skhd --description 'Shortcuts from the skhd config'
             # Join continued lines into $0 itself: every pattern below matches against
             # $0, so stitching them in a side variable would leak continuations as rows.
             # fish collapses \\ inside single quotes, so a literal backslash needs four
-            /\\\\[ \t]*$/ { sub(/\\\\[ \t]*$/, "", $0); buffer = buffer $0; next }
-            { $0 = buffer $0; buffer = ""; line = $0 }
+            /\\\\[ \t]*$/ { sub(/[ \t]*\\\\[ \t]*$/, " ", $0); buffer = buffer $0; next }
+            { if (buffer != "") sub(/^[ \t]+/, "", $0); $0 = buffer $0; buffer = ""; line = $0 }
 
             # section headers double as a category for everything below them
             /^#[ \t]*--/ {
@@ -365,64 +397,147 @@ function _keys_source_skhd --description 'Shortcuts from the skhd config'
     end
 end
 
-function _keys_source_yazi --description 'Shortcuts from the yazi keymap'
-    set -f config ~/.config/yazi/keymap.toml
-    test -f $config; or return
+function _keysight_source_yazi --description 'Shortcuts from the yazi keymap'
+    for config in (_keysight_config yazi yazi/keymap.toml)
+        test -f $config; or continue
 
-    grep --line-number 'on *=' $config | while read --line entry
-        set -l lineno (string split --max 1 ':' -- $entry)[1]
-        set -l body (string replace --regex '^[0-9]+:' '' -- $entry)
+        # yazi accepts two spellings of the same keymap: inline tables inside
+        # `prepend_keymap = [ ... ]`, and one `[[mgr.prepend_keymap]]` section per binding
+        # with the fields on their own lines. Both appear in the wild, so both are parsed.
+        awk -v file="$config" '
+            function trim(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
 
-        set -l shortcut (string replace --regex '.*on *= *\[([^]]*)\].*' '$1' -- $body)
-        set shortcut (string join '' (string trim --chars=' "' -- (string split ',' -- $shortcut)))
-        set -l desc (string replace --regex '.*desc *= *"([^"]*)".*' '$1' -- $body)
+            # A single quote cannot be written inside the single-quoted fish string that
+            # carries this program, so the character is built from its code point
+            function sq() { return sprintf("%c", 39) }
 
-        # run is quoted with either flavour of quote and often contains the other one,
-        # so the quoting style is detected instead of trimmed off blindly
-        set -l action
-        if string match --quiet --regex 'run *= *\'' -- $body
-            set action (string replace --regex '.*run *= *\'([^\']*)\'.*' '$1' -- $body)
-        else
-            set action (string replace --regex '.*run *= *"((?:[^"\\\\]|\\\\.)*)".*' '$1' -- $body)
-        end
+            # Values come quoted with either flavour, and the other flavour is routinely
+            # used inside them, so the opening quote decides where the value ends
+            function unquote(s,   q, out, i, c, escaped) {
+                s = trim(s)
+                q = substr(s, 1, 1)
+                if (q != "\"" && q != sq()) return s
+                out = ""
+                for (i = 2; i <= length(s); i++) {
+                    c = substr(s, i, 1)
+                    if (escaped) { out = out c; escaped = 0; continue }
+                    if (c == "\\\\" && q == "\"") { escaped = 1; out = out c; continue }
+                    if (c == q) break
+                    out = out c
+                }
+                return out
+            }
 
-        test "$desc" = "$body"; and set desc $action
+            # `on` is a single key or a sequence of them; a sequence is shown the way it is
+            # typed, one key after another
+            function chord(s,   out, i, c, q, inside) {
+                s = trim(s)
+                if (substr(s, 1, 1) != "[") return unquote(s)
+                out = ""
+                inside = 0
+                for (i = 2; i <= length(s); i++) {
+                    c = substr(s, i, 1)
+                    if (!inside && (c == "\"" || c == sq())) { inside = 1; q = c; continue }
+                    if (inside && c == q) { inside = 0; continue }
+                    if (inside) out = out c
+                }
+                return out
+            }
 
-        printf 'yazi\t%s\t%s\t%s\t%s\t-\n' $shortcut $desc $action "$config:$lineno"
+            function store(segment,   at, key) {
+                at = index(segment, "=")
+                if (at == 0) return
+                key = trim(substr(segment, 1, at - 1))
+                field[key] = trim(substr(segment, at + 1))
+            }
+
+            # Split an inline table on its top level commas only: both the key sequence and
+            # the quoted shell command it runs are full of commas of their own
+            function split_table(s,   i, c, q, depth, segment) {
+                delete field
+                sub(/^[ \t]*\{/, "", s)
+                sub(/\}[ \t]*,?[ \t]*$/, "", s)
+                segment = ""
+                q = ""
+                depth = 0
+                for (i = 1; i <= length(s); i++) {
+                    c = substr(s, i, 1)
+                    if (q != "") {
+                        segment = segment c
+                        if (c == "\\\\" && q == "\"") { segment = segment substr(s, ++i, 1); continue }
+                        if (c == q) q = ""
+                        continue
+                    }
+                    if (c == "\"" || c == sq()) { q = c; segment = segment c; continue }
+                    if (c == "[") depth++
+                    if (c == "]") depth--
+                    if (c == "," && depth == 0) { store(segment); segment = ""; continue }
+                    segment = segment c
+                }
+                store(segment)
+            }
+
+            function emit(   shortcut, action, description) {
+                if (!("on" in field)) return
+                shortcut = chord(field["on"])
+                action = unquote(field["run"])
+                description = ("desc" in field) ? unquote(field["desc"]) : action
+                delete field
+                if (shortcut == "") return
+                printf "yazi\t%s\t%s\t%s\t%s:%d\t-\n", shortcut, description, action, file, lineno
+            }
+
+            /^[ \t]*#/ { next }
+
+            /\{[^}]*on[ \t]*=/ {
+                lineno = NR
+                split_table($0)
+                emit()
+                next
+            }
+
+            /^[ \t]*\[\[.*keymap.*\]\]/ { emit(); block = 1; lineno = NR; next }
+            /^[ \t]*\[/ { emit(); block = 0; next }
+
+            block && /^[ \t]*(on|run|desc)[ \t]*=/ { store($0) }
+
+            END { emit() }
+        ' $config
     end
 end
 
-function _keys_source_lazygit --description 'Custom commands from the lazygit config'
-    set -f config ~/.config/lazygit/config.yml
-    test -f $config; or return
+function _keysight_source_lazygit --description 'Custom commands from the lazygit config'
+    for config in (_keysight_config lazygit lazygit/config.yml)
+        test -f $config; or continue
 
-    # Nested prompts carry their own key/description pairs, so every field is matched
-    # against the indentation of the command it belongs to.
-    awk -v file="$config" '
-        function trim(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); gsub(/^"|"$/, "", s); return s }
-        function indent(s) { match(s, /^[ \t]*/); return RLENGTH }
+        # Nested prompts carry their own key/description pairs, so every field is matched
+        # against the indentation of the command it belongs to.
+        awk -v file="$config" '
+            function trim(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); gsub(/^"|"$/, "", s); return s }
+            function indent(s) { match(s, /^[ \t]*/); return RLENGTH }
 
-        /^[ \t]*- key:/ && indent($0) <= 2 {
-            if (key != "") printf "lazygit\t%s\t%s\t%s\t%s:%d\t-\n", key, description, command, file, lineno
-            key = trim(substr($0, index($0, ":") + 1))
-            level = indent($0) + 2
-            lineno = NR
-            command = ""
-            description = ""
-            next
-        }
-        key != "" && indent($0) == level && /^[ \t]*command:/ { command = trim(substr($0, index($0, ":") + 1)) }
-        key != "" && indent($0) == level && /^[ \t]*description:/ { description = trim(substr($0, index($0, ":") + 1)) }
+            /^[ \t]*- key:/ && indent($0) <= 2 {
+                if (key != "") printf "lazygit\t%s\t%s\t%s\t%s:%d\t-\n", key, description, command, file, lineno
+                key = trim(substr($0, index($0, ":") + 1))
+                level = indent($0) + 2
+                lineno = NR
+                command = ""
+                description = ""
+                next
+            }
+            key != "" && indent($0) == level && /^[ \t]*command:/ { command = trim(substr($0, index($0, ":") + 1)) }
+            key != "" && indent($0) == level && /^[ \t]*description:/ { description = trim(substr($0, index($0, ":") + 1)) }
 
-        END { if (key != "") printf "lazygit\t%s\t%s\t%s\t%s:%d\t-\n", key, description, command, file, lineno }
-    ' $config
+            END { if (key != "") printf "lazygit\t%s\t%s\t%s\t%s:%d\t-\n", key, description, command, file, lineno }
+        ' $config
+    end
 end
 
-function _keys_source_nvim --description 'Normal mode mappings from a live nvim instance'
+function _keysight_source_nvim --description 'Normal mode mappings from a live nvim instance'
     command --query nvim; or return
 
-    set -f cache ~/.cache/keys-cheatsheet/nvim.tsv
-    set -f config ~/.config/nvim
+    set -f cache (_keysight_cache_dir)/nvim.tsv
+    set -f config (_keysight_config nvim nvim)
 
     if test "$argv[1]" != refresh
         and test -f $cache
@@ -451,11 +566,11 @@ function _keys_source_nvim --description 'Normal mode mappings from a live nvim 
     cat $cache
 end
 
-function _keys_normalise --description 'Bring shortcut spelling in line across sources'
+function _keysight_normalise --description 'Bring shortcut spelling in line across sources'
     string lower -- $argv[1] | string replace --all '+' '-' | string replace --all '|' '-' | string trim
 end
 
-function _keys_describe_action --description 'Turn a config action into something readable'
+function _keysight_describe_action --description 'Turn a config action into something readable'
     set -f action (string trim -- $argv[1])
 
     switch $action
@@ -472,12 +587,12 @@ function _keys_describe_action --description 'Turn a config action into somethin
     end
 end
 
-function _keys_preview --description 'Render the fzf preview card for one shortcut'
-    set -f row (_keys_row $argv[1] $argv[2])
+function _keysight_preview --description 'Render the fzf preview card for one shortcut'
+    set -f row (_keysight_row $argv[1] $argv[2])
     test (count $row) -ge 5; or return
 
     set_color --bold cyan
-    echo (string trim -- (_keys_strip $row[3]))
+    echo (string trim -- (_keysight_strip $row[3]))
     set_color normal
     echo
 
@@ -512,8 +627,8 @@ function _keys_preview --description 'Render the fzf preview card for one shortc
     echo "  $row[6]"
 end
 
-function _keys_edit --description 'Open the config a shortcut comes from'
-    set -f row (_keys_row $argv[1] $argv[2])
+function _keysight_edit --description 'Open the config a shortcut comes from'
+    set -f row (_keysight_row $argv[1] $argv[2])
     set -f origin $row[6]
     set -f file (string split ':' -- $origin)[1]
 
@@ -530,11 +645,11 @@ function _keys_edit --description 'Open the config a shortcut comes from'
     end
 end
 
-function _keys_row --description 'Read one indexed row back from the data file'
+function _keysight_row --description 'Read one indexed row back from the data file'
     test -f "$argv[1]"; or return
     string split \t -- (awk -F'\t' -v n="$argv[2]" 'NR == n' $argv[1])
 end
 
-function _keys_strip --description 'Drop ANSI colouring from a field'
+function _keysight_strip --description 'Drop ANSI colouring from a field'
     string replace --all --regex '\e\[[0-9;]*m' '' -- $argv[1]
 end
