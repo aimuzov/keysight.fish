@@ -37,6 +37,11 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install fish
 
+      # fish is written in Rust since 4.0, and the runner image does not carry a toolchain
+      - name: Install Rust
+        if: matrix.fish != 'latest'
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Build fish from source
         if: matrix.fish != 'latest'
         env:
