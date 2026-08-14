@@ -1,0 +1,26 @@
+# -- Windows ----------------------------------------------------------------
+
+.define focus_west : yabai -m window --focus west
+.define focus_east : yabai -m window --focus east
+
+.blacklist [
+    "terminal"
+]
+
+alt - h : @focus_west # Focus the window to the left
+alt - l : @focus_east
+
+# A continued line: everything below must arrive as one binding, and the
+# fragment on the second line must not become a binding of its own.
+alt - r : yabai -m space --rotate 90 \
+    && yabai -m space --balance
+
+cmd - q : true # Quitting by accident is too easy
+
+# -- Modes ------------------------------------------------------------------
+
+:: resize @
+
+default < alt - w ; resize
+resize < escape ; default
+resize < h : yabai -m window --resize left:-20:0 # Grow to the left

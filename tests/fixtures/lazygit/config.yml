@@ -1,0 +1,19 @@
+gui:
+  theme:
+    selectedLineBgColor:
+      - reverse
+
+customCommands:
+  - key: "n"
+    command: "git checkout -b {{.Form.Branch}}"
+    description: "Start a branch"
+    context: "localBranches"
+    prompts:
+      - key: "Branch"
+        type: "input"
+        title: "Branch name"
+        description: "this nested description belongs to the prompt"
+  - key: "P"
+    command: "git push --force-with-lease"
+    description: "Force push, with lease"
+    context: "global"
