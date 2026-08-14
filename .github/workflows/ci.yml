@@ -24,7 +24,7 @@ jobs:
             fish: "4.0.0"
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install fish from the release PPA
         if: runner.os == 'Linux' && matrix.fish == 'latest'
