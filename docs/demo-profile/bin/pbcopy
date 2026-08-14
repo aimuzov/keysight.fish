@@ -1,0 +1,3 @@
+#!/bin/sh
+# the recording must not touch the real clipboard
+cat >/dev/null

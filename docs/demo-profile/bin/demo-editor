@@ -1,0 +1,3 @@
+#!/bin/sh
+# ctrl-e opens $EDITOR; in the recording that is a bare nvim
+exec nvim -u NONE -c "set number cursorline" "$@"
