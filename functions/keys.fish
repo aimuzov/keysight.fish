@@ -126,6 +126,15 @@ function _keysight_collect --description 'Gather, normalise and index shortcuts 
     # collisions between sources end up next to each other, and finally add the index
     # that the preview uses to find the full row.
     printf '%s\n' $raw | awk -F'\t' '
+        # A binding that also exists outside every mode is not scoped to one, so the
+        # collapsed list of modes only means something when none of them is "-"
+        function scoped(list,   part, i, n) {
+            if (list == "") return 0
+            n = split(list, part, "/")
+            for (i = 1; i <= n; i++) if (part[i] == "-" || part[i] == "") return 0
+            return 1
+        }
+
         {
             key = $1 FS $2 FS $4
             if (key in modes) { modes[key] = modes[key] "/" $6; next }
@@ -138,7 +147,7 @@ function _keysight_collect --description 'Gather, normalise and index shortcuts 
                 key = order[i]
                 split(row[key], f, FS)
                 shortcut = f[2]
-                if (modes[key] != "" && modes[key] != "-") shortcut = shortcut " (" modes[key] ")"
+                if (scoped(modes[key])) shortcut = shortcut " (" modes[key] ")"
                 printf "%s\t%s\t%s\t%s\t%s\n", f[1], shortcut, f[3], f[4], f[5]
             }
         }
