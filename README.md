@@ -35,6 +35,41 @@ With [fisher](https://github.com/jorgebucaran/fisher):
 fisher install aimuzov/keysight.fish
 ```
 
+With [chezmoi](https://www.chezmoi.io) and no plugin manager at all — two externals that unpack
+the same tarball into a directory of their own:
+
+```toml
+# .chezmoiexternal.toml
+[".config/fish/functions/keysight"]
+    type = "archive"
+    url = "https://github.com/aimuzov/keysight.fish/archive/refs/heads/main.tar.gz"
+    stripComponents = 2
+    include = ["*/functions/**"]
+    exact = true
+    refreshPeriod = "168h"
+
+[".config/fish/completions/keysight"]
+    type = "archive"
+    url = "https://github.com/aimuzov/keysight.fish/archive/refs/heads/main.tar.gz"
+    stripComponents = 2
+    include = ["*/completions/**"]
+    exact = true
+    refreshPeriod = "168h"
+```
+
+`include` is matched against the path inside the archive, before `stripComponents` drops the
+repository and category directories. The subdirectory is what keeps `exact = true` from wiping
+everything else you keep in `functions/`, and fish has to be told about it:
+
+```fish
+# conf.d/keysight.fish
+set -p fish_function_path $__fish_config_dir/functions/keysight
+set -p fish_complete_path $__fish_config_dir/completions/keysight
+```
+
+Externals refresh on their own schedule; `chezmoi apply --refresh-externals` pulls a newer version
+right away.
+
 Manually — copy `functions/keys.fish` into `~/.config/fish/functions/`.
 
 ## Usage
