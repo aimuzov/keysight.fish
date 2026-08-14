@@ -11,6 +11,10 @@ function _keysight_source_fish
     printf 'fish\tctrl-r\tSearch history backwards\thistory-search-backward\tfish (built-in)\tdefault\n'
     printf 'fish\tctrl-r\tSearch history backwards\thistory-search-backward\tfish (built-in)\tinsert\n'
     printf 'fish\tctrl-e\tJump to end of line\tend-of-line\tfish (built-in)\t-\n'
+    # ctrl-w is bound both outside any mode and inside insert, the way fish reports a
+    # binding that vi mode only adds to
+    printf 'fish\tctrl-w\tCut word to the left\tbackward-kill-word\tfish (built-in)\t-\n'
+    printf 'fish\tctrl-w\tCut word to the left\tbackward-kill-word\tfish (built-in)\tinsert\n'
 end
 
 function _keysight_source_ghostty
@@ -23,19 +27,21 @@ for row in $rows
     set --append plain (_keysight_strip $row)
 end
 
-@test "rows differing only by mode are collapsed" (count $rows) -eq 3
+@test "rows differing only by mode are collapsed" (count $rows) -eq 4
 @test "the modes are shown next to the shortcut" \
     (_kt_has 'ctrl-r (default/insert)' $plain) = yes
 @test "a source without modes gets no suffix" (_kt_has 'ctrl-e (' $plain) = no
+@test "neither does a binding that also exists outside every mode" \
+    (_kt_has 'ctrl-w (' $plain) = no
 
 @test "rows are numbered from one" (_kt_field $rows[1] 1) = 1
-@test "and the numbering is contiguous" (_kt_field $rows[3] 1) = 3
+@test "and the numbering is contiguous" (_kt_field $rows[4] 1) = 4
 
 set -l shortcuts (string trim -- (string replace --regex ' *\(.*\)' '' -- (_kt_column 3 $plain)))
 
-@test "rows are sorted by shortcut" (string join , $shortcuts) = ctrl-e,ctrl-r,ctrl-r
+@test "rows are sorted by shortcut" (string join , $shortcuts) = ctrl-e,ctrl-r,ctrl-r,ctrl-w
 @test "so that a collision between sources lands next to itself" \
-    (string join , (string trim -- (_kt_column 2 $plain))) = fish,ghostty,fish
+    (string join , (string trim -- (_kt_column 2 $plain))) = fish,ghostty,fish,fish
 
 @test "the shortcut column is coloured for fzf" (_kt_has \e'[' $rows[1]) = yes
 @test "and the colouring can be stripped back off" (_kt_has \e'[' $plain[1]) = no
