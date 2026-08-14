@@ -1,0 +1,17 @@
+# Both spellings of the same keymap live here on purpose: yazi accepts either.
+
+[mgr]
+prepend_keymap = [
+	{ on = [ "g", "r" ], run = 'shell -- ya emit cd "$(git rev-parse --show-toplevel)"', desc = "Jump to the repository root" },
+	{ on = [ "<C-n>" ], run = "shell -- open -R \"$0\"", desc = "Reveal in Finder" },
+	{ on = [ "q" ], run = "quit" },
+]
+
+[[input.prepend_keymap]]
+on   = [ "<C-a>" ]
+run  = "move -999"
+desc = "Move to the beginning of the line"
+
+[[input.prepend_keymap]]
+on  = "<Esc>"
+run = "close"

@@ -1,0 +1,8 @@
+font-family = JetBrains Mono
+window-padding-x = 8
+
+keybind = cmd+shift+t=new_tab
+keybind = ctrl+a>c=new_window
+keybind = cmd+k=text:\x0c
+# a commented out keybind must be ignored
+# keybind = cmd+z=undo
