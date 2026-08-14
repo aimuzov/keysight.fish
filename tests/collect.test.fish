@@ -15,6 +15,8 @@ function _keysight_source_fish
     # binding that vi mode only adds to
     printf 'fish\tctrl-w\tCut word to the left\tbackward-kill-word\tfish (built-in)\t-\n'
     printf 'fish\tctrl-w\tCut word to the left\tbackward-kill-word\tfish (built-in)\tinsert\n'
+    # a source that leaves the mode column empty rather than filling in a dash
+    printf 'fish\tctrl-q\tQuit\texit\tfish (built-in)\t\n'
 end
 
 function _keysight_source_ghostty
@@ -27,21 +29,22 @@ for row in $rows
     set --append plain (_keysight_strip $row)
 end
 
-@test "rows differing only by mode are collapsed" (count $rows) -eq 4
+@test "rows differing only by mode are collapsed" (count $rows) -eq 5
 @test "the modes are shown next to the shortcut" \
     (_kt_has 'ctrl-r (default/insert)' $plain) = yes
 @test "a source without modes gets no suffix" (_kt_has 'ctrl-e (' $plain) = no
 @test "neither does a binding that also exists outside every mode" \
     (_kt_has 'ctrl-w (' $plain) = no
+@test "and an empty mode column brings no empty brackets" (_kt_has '()' $plain) = no
 
 @test "rows are numbered from one" (_kt_field $rows[1] 1) = 1
-@test "and the numbering is contiguous" (_kt_field $rows[4] 1) = 4
+@test "and the numbering is contiguous" (_kt_field $rows[5] 1) = 5
 
 set -l shortcuts (string trim -- (string replace --regex ' *\(.*\)' '' -- (_kt_column 3 $plain)))
 
-@test "rows are sorted by shortcut" (string join , $shortcuts) = ctrl-e,ctrl-r,ctrl-r,ctrl-w
+@test "rows are sorted by shortcut" (string join , $shortcuts) = ctrl-e,ctrl-q,ctrl-r,ctrl-r,ctrl-w
 @test "so that a collision between sources lands next to itself" \
-    (string join , (string trim -- (_kt_column 2 $plain))) = fish,ghostty,fish,fish
+    (string join , (string trim -- (_kt_column 2 $plain))) = fish,fish,ghostty,fish,fish
 
 @test "the shortcut column is coloured for fzf" (_kt_has \e'[' $rows[1]) = yes
 @test "and the colouring can be stripped back off" (_kt_has \e'[' $plain[1]) = no
@@ -51,7 +54,7 @@ set -l shortcuts (string trim -- (string replace --regex ' *\(.*\)' '' -- (_kt_c
 set -l data (mktemp -t keysight-test.XXXXXX)
 printf '%s\n' $rows >$data
 
-set -l row (_keysight_row $data 2)
+set -l row (_keysight_row $data 3)
 @test "a row is read back by its number" (string trim (_keysight_strip $row[3])) = ctrl-r
 @test "and arrives whole" (count $row) -eq 6
 

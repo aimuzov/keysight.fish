@@ -129,6 +129,7 @@ function _keysight_collect --description 'Gather, normalise and index shortcuts 
         # A binding that also exists outside every mode is not scoped to one, so the
         # collapsed list of modes only means something when none of them is "-"
         function scoped(list,   part, i, n) {
+            if (list == "") return 0
             n = split(list, part, "/")
             for (i = 1; i <= n; i++) if (part[i] == "-" || part[i] == "") return 0
             return 1
