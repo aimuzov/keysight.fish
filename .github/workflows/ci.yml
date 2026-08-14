@@ -50,7 +50,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake ninja-build gettext libpcre2-dev
           git clone --depth 1 --branch "$FISH_VERSION" https://github.com/fish-shell/fish-shell
-          cmake -S fish-shell -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          # The Corrosion release vendored by fish 4.0 cannot discover a toolchain through
+          # today's rustup, so the compiler is pointed at directly
+          cmake -S fish-shell -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DRust_COMPILER="$(rustup which rustc)" -DRust_CARGO="$(rustup which cargo)"
           cmake --build build
           sudo cmake --install build
 
