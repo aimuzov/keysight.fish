@@ -8,6 +8,8 @@ that tells you what each key does and where it is defined.
 keys
 ```
 
+![keys, browsing the shortcuts of the machine it runs on](docs/demo.gif)
+
 No cheat sheet to maintain: every source is parsed on each run, so the list cannot drift away from
 your configs.
 
@@ -126,6 +128,17 @@ The suite runs on fixtures, not on the configs of whoever runs it:
 ```fish
 fisher install jorgebucaran/fishtape
 fishtape tests/*.test.fish
+```
+
+## The recording
+
+`docs/demo.gif` is produced by [vhs](https://github.com/charmbracelet/vhs) from
+`docs/demo.tape`, in a fish profile of its own (`docs/demo-profile`) that keeps personal prompts
+and colour schemes out of the frame while every source still reads the real configs of the machine:
+
+```fish
+brew install vhs ttyd
+cd docs; and vhs demo.tape
 ```
 
 ## License
